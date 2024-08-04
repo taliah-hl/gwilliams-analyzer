@@ -1,0 +1,11 @@
+{
+    "description": "is sound prediction by LinearDiscriminantAnalysis, 05Aug",
+    "recall": 0.33276133276133274,
+    "precision": 0.33414704192992534,
+    "accuracy": 0.4887899769205407,
+    "f1_score": 0.3334527477251558,
+    "tp": 6981,
+    "fp": 13911,
+    "tn": 19704,
+    "fn": 13998
+}

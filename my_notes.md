@@ -130,3 +130,4 @@ print("shpae of X:", X.shape)
 |  4 |    17 | lw1   |         0 |        0 | phoneme |  1.77 | stimuli/audio/lw1_0.wav | 25.276 |     0.07 | 2000-01-01 00:00:00+00:00 | ey_I    |           0 | sentence  |          4 |         205 | Allison |          1 |  nan |         1 | True   | True    |     5.06 |     0 |    0 |       0 | t0_s0_h0 |
 
 >> 這會把index重新設成0,1,2,3... 
+
