@@ -131,5 +131,3 @@ print("shpae of X:", X.shape)
 
 >> 這會把index重新設成0,1,2,3... 
 
-
-hi

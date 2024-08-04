@@ -17,6 +17,7 @@ import os
 #my self
 from tabulate import tabulate
 from pprint import pprint
+import json
 
 matplotlib.use("Agg")
 
@@ -68,6 +69,8 @@ def createIsSoundTable(raw):
     if "intercept" not in meta.columns:
         meta["intercept"] = 1.0
     #meta.to_csv("metadata_in_raw.csv")
+    print("--------------")
+    print("")
     print(tabulate(meta[:30], headers='keys', tablefmt='github'))
 
 
@@ -93,10 +96,12 @@ def createIsSoundTable(raw):
 
     
 
-def addIsWordCol(raw):
+def create_epoch_with_is_sound(raw):
     """
-    add a column is_word to meta data
+    add a column is_sound to meta data
     """
+    
+    print("add_is_sound_col is running")
     
     meta = list()
     for annot in raw.annotations:
@@ -110,10 +115,74 @@ def addIsWordCol(raw):
             d[k] = v
         meta.append(d)
     meta = pd.DataFrame(meta)
-
     if "intercept" not in meta.columns:
         meta["intercept"] = 1.0
+    #meta.to_csv("metadata_in_raw.csv")
 
+    # create is_sound column to meta
+    meta['is_sound'] = np.nan
+    
+
+    # Initialize variables
+    time_step = 0
+    rows = []
+    # Iterate through meta DataFrame
+    for index, row in meta.iterrows():
+        if row['kind'] == 'word':
+            no_sound_row = {col: np.nan for col in meta.columns}
+            no_sound_row.update({'is_sound': False, 'kind': 'no_sound', 'onset': time_step, 'duration': row['onset'] - time_step})
+            rows.append(no_sound_row)
+            # Update is_sound in meta
+            meta.at[index, 'is_sound'] = True
+            # Update time_step
+            time_step = row['onset'] + row['duration']
+
+
+    # Create is_sound_table DataFrame from rows
+    is_sound_table = pd.DataFrame(rows)
+
+    # Concatenate meta and is_sound_table
+    meta = pd.concat([meta, is_sound_table], ignore_index=True)
+
+    # Sort by onset to maintain order
+    meta = meta.sort_values(by='onset').reset_index(drop=True)
+    meta['is_sound_or_not'] = ~meta["is_sound"].isna()    # for later extracting column with is_sound true or false
+
+    if(not os.path.exists("is_sound_table.csv")):   
+        is_sound_table.to_csv("is_sound_table.csv")
+
+    if(not os.path.exists("metadata_with_is_sound.csv")):   
+        meta.to_csv("metadata_with_is_sound.csv")
+
+    print("----------------")
+    #print("first 10 rows of meta after adding is_sound column....")
+    #print(tabulate(meta[:10], headers='keys', tablefmt='github'))
+
+    events = np.c_[
+        meta.onset * raw.info["sfreq"], np.ones((len(meta), 2))
+    ].astype(int)
+
+    epochs = mne.Epochs(
+        raw,
+        events,
+        tmin=-0.200,
+        tmax=0.6,
+        decim=10,
+        baseline=(-0.2, 0.0),
+        metadata=meta,
+        preload=True,
+        event_repeated="drop",
+    )
+
+    th = np.percentile(np.abs(epochs._data), 95)
+    epochs._data[:] = np.clip(epochs._data, -th, th)
+    epochs.apply_baseline()
+    th = np.percentile(np.abs(epochs._data), 95)
+    epochs._data[:] = np.clip(epochs._data, -th, th)
+    epochs.apply_baseline()
+    return epochs
+
+    
 
 def preprocess_lables_of_metadata(raw):
     """
@@ -250,7 +319,7 @@ def segment(raw):
     ].astype(int)
     # raw.info["sfreq"] = sampling frequency
     # meta.onset * raw.info["sfreq"] = convert conset time to sample index
-    # np.ones((len(meta), 2) = create array of same no, of rows as len(meta) and 2 cols
+    # np.ones((len(meta), 2) = create array of same no. of rows as len(meta) and 2 cols
     # 
     #     Summary
     # The resulting events array has the following structure:
@@ -288,8 +357,88 @@ def segment(raw):
 
 def decod_binary(X, y, meta, times):
     """
-    y is expected to be binary with value 0 or 1
+    y is expected to be binary with value True or False
     """
+    to_print_csv  =  True
+    print("decod_binary is running")
+    assert len(X) == len(y) == len(meta)
+    print(f"in decod, len(x)=len(y)=len(meta)={len(X)}")
+    meta = meta.reset_index()
+
+    model = make_pipeline(StandardScaler(), LinearDiscriminantAnalysis())
+    cv = KFold(5, shuffle=True, random_state=0)
+
+    # fit predict
+    n, nchans, ntimes = X.shape
+    preds = np.zeros((n, ntimes, 2))  # Adjusted to store probabilities for both classes
+
+    for t in trange(ntimes):
+        preds[:, t, :] = cross_val_predict(
+            model, X[:, :, t], y, cv=cv, method="predict_proba"
+        )
+
+    # Create DataFrame
+    results = []
+    for t in range(ntimes):
+        for i in range(n):
+            is_sound_is_0 = preds[i, t, 0]
+            is_sound_is_1 = preds[i, t, 1]
+            comparison = is_sound_is_1 > is_sound_is_0
+            results.append([y[i], is_sound_is_0, is_sound_is_1, comparison])
+
+    df_results = pd.DataFrame(results, columns=['ground_truth', 'is_sound_predicted_as_0', 'is_sound_predicted_as_1', 'is_sound_prediction'])
+
+    df_results['TP/FP/TN/FN'] = df_results.apply(
+        lambda row: 'TP' if row['ground_truth'] and row['is_sound_prediction'] else
+                'FP' if not row['ground_truth'] and row['is_sound_prediction'] else
+                'TN' if not row['ground_truth'] and not row['is_sound_prediction'] else
+                'FN',
+        axis=1
+    )
+    # Calculate metrics
+    tp = len(df_results[df_results['TP/FP/TN/FN'] == 'TP'])
+    fp = len(df_results[df_results['TP/FP/TN/FN'] == 'FP'])
+    tn = len(df_results[df_results['TP/FP/TN/FN'] == 'TN'])
+    fn = len(df_results[df_results['TP/FP/TN/FN'] == 'FN'])
+
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+    accuracy = (tp + tn) / (tp + tn + fp + fn) if (tp + tn + fp + fn) > 0 else 0
+    f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+
+    metrics = {
+        'description': 'is sound prediction by LinearDiscriminantAnalysis, 05Aug',
+        'recall': recall,
+        'precision': precision,
+        'accuracy': accuracy,
+        'f1_score': f1_score,
+        'tp': tp,
+        'fp': fp,
+        'tn': tn,
+        'fn': fn
+    }
+
+    # Save metrics to JSON file
+    with open('is_sound_prediction_metrics.json', 'w') as f:
+        json.dump(metrics, f, indent=4)
+    if(to_print_csv):
+        df_results.to_csv("is_sound_prediction_results.csv")
+    # Plotting
+    plt.figure(figsize=(10, 6))
+
+    # graph plotting is buggy, to be fixed
+    # mean_probabilities = df_results.groupby('time')['is_sound_predicted_as_1'].mean()
+    # plt.plot(mean_probabilities.index, mean_probabilities.values, label='Mean Predicted Probability of is_sound=1')    
+    # plt.xlabel('Time')
+    # plt.ylabel('Probability')
+    # plt.title('Predicted Probability of is_sound=1 Over Time')
+    # plt.legend()
+    # plt.savefig('predicted_probabilities.png')
+    # plt.show()
+    
+
+    return df_results
+    
 
 def decod(X, y, meta, times):
     assert len(X) == len(y) == len(meta)
@@ -367,7 +516,9 @@ def plot(result):
 
 
 
-def _get_epochs(subject, until_sesion, until_task, add_is_sound_only_flag=False, to_add_is_sound = None):
+def _get_epochs(subject, until_sesion, until_task, 
+                add_is_sound_only_flag=False, 
+                to_add_is_sound = None):
     print("_get_epochs is running")
     all_epochs = list()
     for session in range(until_sesion):
@@ -394,23 +545,28 @@ def _get_epochs(subject, until_sesion, until_task, add_is_sound_only_flag=False,
                 createIsSoundTable(raw)
                 print("create is_sound table done. program exit")
                 exit(0)
+
+            elif(to_add_is_sound):
+                epochs = create_epoch_with_is_sound(raw)
+
             else:
                 epochs = segment(raw)
-                epochs.metadata["half"] = np.round(
-                    np.linspace(0, 1.0, len(epochs))
-                ).astype(int)
-                # create a half 0 half 1 column
-                epochs.metadata["task"] = task
-                epochs.metadata["session"] = session
 
-                all_epochs.append(epochs)
+            epochs.metadata["half"] = np.round(
+                np.linspace(0, 1.0, len(epochs))
+            ).astype(int)
+            # create a half 0 half 1 column
+            epochs.metadata["task"] = task
+            epochs.metadata["session"] = session
+
+            all_epochs.append(epochs)
 
 
-                print("first 5 rows of epochs.metadata")
-                print(tabulate(epochs.metadata[:20], headers='keys', tablefmt='github'))
-                # add code to check if epochs_metadata.csv exist
-                if(not os.path.exists("epochs_metadata.csv")):   
-                    epochs.metadata.to_csv("epochs_metadata.csv")
+            print("first 5 rows of epochs.metadata")
+            print(tabulate(epochs.metadata[:20], headers='keys', tablefmt='github'))
+            # add code to check if epochs_metadata.csv exist
+            if(not os.path.exists("epochs_metadata.csv")):   
+                epochs.metadata.to_csv("epochs_metadata.csv")
 
             
     print("breakpoint 1") 
@@ -429,12 +585,50 @@ def _get_epochs(subject, until_sesion, until_task, add_is_sound_only_flag=False,
     epochs.metadata["label"] = label
     return epochs
 
+def decod_caller_is_sound(subject, epochs):
+    """
+    decod caller for decoding is_sound
+    """
+    to_print_csv = False
 
-def _decod_one_subject(subject, until_session, until_task, add_is_sound_only_flag=False):
-    print("_decod_one_subject is running")
-    epochs = _get_epochs(subject, until_session, until_task, add_is_sound_only_flag)
-    if epochs is None:
-        return
+    is_sound_or_not = epochs["is_sound_or_not"]
+    print("type of is_sound_or_not", type(is_sound_or_not))
+    print("first 5 rows of is_sound_or_not.metadata")
+    print(tabulate(is_sound_or_not.metadata[:5], headers='keys', tablefmt='github'))
+    X = is_sound_or_not.get_data(copy=True) * 1e13
+    y = is_sound_or_not.metadata["is_sound"].values
+    print("type of y:", type(y))
+    # y is expected as numpy 1D array
+    # print shape of y
+    print("shape of y:", y.shape)
+    # print first 5 rows of y
+    print("first 5 rows of y")
+    pprint(y[:5])
+    print("break point")
+    print("type of X:", type(X))
+    
+    print("shpae of X:", X.shape)
+    print("break point")
+    print("first 5 rows of X")
+    pprint(X[:5])
+
+    if(to_print_csv):
+        is_sound_or_not.metadata.to_csv("is_sound_or_not_metadata.csv")
+
+    # data checking before call decod
+    assert len(X) == len(y) == len(is_sound_or_not.metadata) 
+
+    results = decod_binary(X, y, is_sound_or_not.metadata, is_sound_or_not.times)
+    results["subject"] = subject
+    results["contrast"] = "is_sound"
+    # fig_decod = plot(results)
+    return
+
+    
+def default_decod_caller(subject, epochs):
+    """
+    original data processing in gwilliams to call decod
+    """
     # words
     words = epochs["is_word"]
     print("type of words", type(words))
@@ -448,7 +642,7 @@ def _decod_one_subject(subject, until_session, until_task, add_is_sound_only_fla
     print(type(evo))
     fig_evo = evo.plot(spatial_colors=True, show=False)
     print("breakpoint 2") 
-    X = words.get_data() * 1e13     # * 1e13 looks like for transform to ft
+    X = words.get_data(copy=True) * 1e13     # * 1e13 looks like for transform to ft
     y = words.metadata["wordfreq"].values
     # words.get_data() is expected as numpy 3D array
     # add code to print first few rows in a readbile way
@@ -474,14 +668,13 @@ def _decod_one_subject(subject, until_session, until_task, add_is_sound_only_fla
 
     fig_decod = plot(results)
     print("program exit before decode phoneme")
-    exit(0)
 
     # Phonemes
     phonemes = epochs["not is_word"]
     evo = phonemes.average()
     fig_evo_ph = evo.plot(spatial_colors=True, show=False)
 
-    X = phonemes.get_data() * 1e13
+    X = phonemes.get_data(copy=True) * 1e13
     y = phonemes.metadata["voiced"].values
 
     
@@ -494,6 +687,34 @@ def _decod_one_subject(subject, until_session, until_task, add_is_sound_only_fla
     return fig_evo, fig_decod, results, fig_evo_ph, fig_decod_ph, results_ph
 
 
+def _decod_one_subject(subject, until_session, until_task, 
+                       add_is_sound_only_flag=False,
+                       to_add_is_sound = None,
+                       flow = ''):
+    """
+    flow: "is_sound", "default"
+    """
+    print("_decod_one_subject is running")
+    
+    
+    # words
+    if flow =="is_sound":
+        epochs = _get_epochs(subject, until_session, until_task, 
+                         add_is_sound_only_flag, to_add_is_sound = True)
+        if epochs is None:
+            return
+        
+        return decod_caller_is_sound(subject, epochs)
+    else:
+        epochs = _get_epochs(subject, until_session, until_task, 
+                         add_is_sound_only_flag, to_add_is_sound = False)
+        if epochs is None:
+            return
+
+        return default_decod_caller(subject, epochs)
+    return
+
+
 
 # ------   global code   ------  #
 
@@ -501,6 +722,7 @@ UNTIL_SUBJECT = 1
 UNTIL_SESSION = 1
 UNTIL_TASK = 1
 ADD_IS_SOUND_ONLY_FLAG = False
+CUSTOM_FUNC_FLOW = 'is_sound'
 
 ph_info = pd.read_csv("phoneme_info.csv")
 subjects = pd.read_csv(PATHS.bids / "participants.tsv", sep="\t")
@@ -544,28 +766,39 @@ if __name__ == "__main__":
         out = _decod_one_subject(subjects[i], 
                                  until_session=UNTIL_SESSION,
                                  until_task=UNTIL_TASK,
-                                 add_is_sound_only_flag=ADD_IS_SOUND_ONLY_FLAG)
+                                 add_is_sound_only_flag=ADD_IS_SOUND_ONLY_FLAG,
+                                 flow = CUSTOM_FUNC_FLOW)
         if out is None:
             continue
+        
+        if CUSTOM_FUNC_FLOW == "default":
+            (
+                fig_evo,
+                fig_decod,
+                results,
+                fig_evo_ph,
+                fig_decod_ph,
+                results_ph,
+            ) = out     # tuple unpacking 1 個tuple拆成多個var
 
-        (
-            fig_evo,
-            fig_decod,
-            results,
-            fig_evo_ph,
-            fig_decod_ph,
-            results_ph,
-        ) = out     # tuple unpacking 1 個tuple拆成多個var
+            report.add_figure(fig_evo, subjects[i], tags="evo_word")
+            report.add_figure(fig_decod, subjects[i], tags="word")
+            report.add_figure(fig_evo_ph, subjects[i], tags="evo_phoneme")
+            report.add_figure(fig_decod_ph, subjects[i], tags="phoneme")
 
-        report.add_figure(fig_evo, subjects[i], tags="evo_word")
-        report.add_figure(fig_decod, subjects[i], tags="word")
-        report.add_figure(fig_evo_ph, subjects[i], tags="evo_phoneme")
-        report.add_figure(fig_decod_ph, subjects[i], tags="phoneme")
+            report.save("decoding.html", open_browser=False, overwrite=True)
 
-        report.save("decoding.html", open_browser=False, overwrite=True)
+            all_results.append(results)
+            all_results.append(results_ph)
+            print("done")
+        elif CUSTOM_FUNC_FLOW == "is_sound":
+            fig_decod, results = out
+            report.add_figure(fig_decod, subjects[i], tags="is_sound")
+            report.save("decoding.html", open_browser=False, overwrite=True)
+            all_results.append(results)
+        else:
+            print("flow not recognized, program exit")
+            break
 
-        all_results.append(results)
-        all_results.append(results_ph)
-        print("done")
-
-    pd.concat(all_results, ignore_index=True).to_csv("decoding_results.csv")
+        if CUSTOM_FUNC_FLOW == "default":
+            pd.concat(all_results, ignore_index=True).to_csv("decoding_results.csv")
