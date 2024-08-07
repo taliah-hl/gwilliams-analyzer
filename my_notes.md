@@ -135,6 +135,13 @@ print("shpae of X:", X.shape)
 ## LDA Tutorial
 https://www.youtube.com/watch?v=9IDXYHhAfGA
 
+
+## Demo project X by LDA from scratch
+
+https://github.com/patrickloeber/MLfromscratch/blob/master/mlfromscratch/lda.py
+
+
+
 # Dimension problem of X, y in LDA
 In the context of the provided code, `X` is a 3D array with dimensions `(n, nchans, ntimes)`, where:
 - `n` is the number of samples.
@@ -186,4 +193,5 @@ for t in range(ntimes):
 - `X_train[:, :, t]` and `X_test[:, :, t]` are 2D slices of `X` for the time point `t`.
 - `y_train` and `y_test` correspond to the samples.
 - Predictions are stored in `preds` with `t` as the second dimension to keep track of predictions for each time point.
+
 
