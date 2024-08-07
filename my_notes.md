@@ -135,9 +135,63 @@ print("shpae of X:", X.shape)
 ## LDA Tutorial
 https://www.youtube.com/watch?v=9IDXYHhAfGA
 
+
 ## Demo project X by LDA from scratch
 
 https://github.com/patrickloeber/MLfromscratch/blob/master/mlfromscratch/lda.py
 
+
+
+# Dimension problem of X, y in LDA
+In the context of the provided code, `X` is a 3D array with dimensions `(n, nchans, ntimes)`, where:
+- `n` is the number of samples.
+- `nchans` is the number of channels or features.
+- `ntimes` is the number of time points.
+
+When fitting the model and making predictions, the code iterates over the `ntimes` dimension. For each time point `t`, the model is trained and predictions are made. This means that for each `t`, the model is working with a 2D slice of `X` with dimensions `(n, nchans)`.
+
+### Explanation
+
+1. **3D Array `X`:**
+   - `X` has the shape `(n, nchans, ntimes)`.
+   - For each time point `t`, `X[:, :, t]` is a 2D array with shape `(n, nchans)`.
+
+2. **2D Array `y`:**
+   - `y` is a 1D array with shape `(n,)`, representing the target labels for each sample.
+   - When fitting the model for a specific time point `t`, `y` remains the same because it corresponds to the samples, not the time points.
+
+### Why `t` is the 3rd Dimension of `X` but Becomes the 2nd Dimension in Predictions
+
+- **In `X`:** The third dimension (`ntimes`) represents different time points. When you slice `X` for a specific time point `t`, you get a 2D array `(n, nchans)` for that time point.
+- **In Predictions:** When making predictions for each time point `t`, you store the results in a 3D array `preds` with shape `(n, ntimes, 2)`. Here, `ntimes` is the second dimension because you are storing predictions for each sample and each time point.
+
+### Example
+
+Consider the following simplified example:
+
+- `X` has shape `(100, 64, 10)`, meaning 100 samples, 64 channels, and 10 time points.
+- `y` has shape `(100,)`, meaning 100 samples.
+
+For each time point `t` (from 0 to 9):
+- `X[:, :, t]` has shape `(100, 64)`.
+- `y` remains `(100,)`.
+
+When storing predictions:
+- `preds` has shape `(100, 10, 2)`, where:
+  - `100` is the number of samples.
+  - `10` is the number of time points.
+  - `2` is the number of classes (probabilities for each class).
+
+### Code Context
+
+In the provided code snippet:
+```python
+for t in range(ntimes):
+    model.fit(X_train[:, :, t], y_train)
+    preds[:, t, :] = model.predict_proba(X_test[:, :, t])
+```
+- `X_train[:, :, t]` and `X_test[:, :, t]` are 2D slices of `X` for the time point `t`.
+- `y_train` and `y_test` correspond to the samples.
+- Predictions are stored in `preds` with `t` as the second dimension to keep track of predictions for each time point.
 
 
