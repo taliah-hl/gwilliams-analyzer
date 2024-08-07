@@ -135,3 +135,9 @@ print("shpae of X:", X.shape)
 ## LDA Tutorial
 https://www.youtube.com/watch?v=9IDXYHhAfGA
 
+## Demo project X by LDA from scratch
+
+https://github.com/patrickloeber/MLfromscratch/blob/master/mlfromscratch/lda.py
+
+
+
