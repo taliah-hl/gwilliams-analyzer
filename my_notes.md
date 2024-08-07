@@ -129,5 +129,9 @@ print("shpae of X:", X.shape)
 |  3 |    13 | lw1   |         0 |        0 | phoneme |  1.16 | stimuli/audio/lw1_0.wav | 24.666 |     0.07 | 2000-01-01 00:00:00+00:00 | t_I     |           0 | sentence  |          3 |         205 | Allison |          1 |  nan |         1 | False  | True    |     5.92 |     0 |    0 |       0 | t0_s0_h0 |
 |  4 |    17 | lw1   |         0 |        0 | phoneme |  1.77 | stimuli/audio/lw1_0.wav | 25.276 |     0.07 | 2000-01-01 00:00:00+00:00 | ey_I    |           0 | sentence  |          4 |         205 | Allison |          1 |  nan |         1 | True   | True    |     5.06 |     0 |    0 |       0 | t0_s0_h0 |
 
->> 這會把index重新設成0,1,2,3... 
+>> 這會把index重新設成0,1,2,3...
+
+# Learning Resources
+## LDA Tutorial
+https://www.youtube.com/watch?v=9IDXYHhAfGA
 
