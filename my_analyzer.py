@@ -629,6 +629,7 @@ def default_decod_caller(subject, epochs):
     """
     original data processing in gwilliams to call decod
     """
+    epochs.to_csv("./0819/0819_concated_epochs.csv")
     # words
     words = epochs["is_word"]
     print("type of words", type(words))
@@ -678,7 +679,7 @@ def default_decod_caller(subject, epochs):
     y = phonemes.metadata["voiced"].values
 
     
-
+    print("break point")
     results_ph = decod(X, y, phonemes.metadata, phonemes.times)
     results_ph["subject"] = subject
     results_ph["contrast"] = "voiced"
@@ -710,6 +711,7 @@ def _decod_one_subject(subject, until_session, until_task,
                          add_is_sound_only_flag, to_add_is_sound = False)
         if epochs is None:
             return
+    # now epochs is the concated epochs
 
         return default_decod_caller(subject, epochs)
     return
@@ -719,10 +721,10 @@ def _decod_one_subject(subject, until_session, until_task,
 # ------   global code   ------  #
 
 UNTIL_SUBJECT = 1
-UNTIL_SESSION = 1
-UNTIL_TASK = 1
+UNTIL_SESSION = 2
+UNTIL_TASK = 2
 ADD_IS_SOUND_ONLY_FLAG = False
-CUSTOM_FUNC_FLOW = 'is_sound'
+CUSTOM_FUNC_FLOW = 'default'
 
 ph_info = pd.read_csv("phoneme_info.csv")
 subjects = pd.read_csv(PATHS.bids / "participants.tsv", sep="\t")
